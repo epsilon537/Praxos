@@ -35,29 +35,33 @@ port(
 	clk : in std_logic;
 	en : in std_logic;
 	addr : in std_logic_vector(PM_WIDTH-1 downto 0);
-	data : out std_logic_vector(35 downto 0)
+	wr : in std_logic;
+	wr_data : in std_logic_vector(35 downto 0);
+	rd_data : out std_logic_vector(35 downto 0)
 );
 end entity praxos_pm;
 
 
 architecture rtl of praxos_pm is
 	
-	signal rom : application_image_t := application_image;--(others => (others => '0'));
+	signal pm : application_image_t := application_image;--(others => (others => '0'));
 	
 	signal q : std_logic_vector(35 downto 0);
 	signal data_int : std_logic_vector(35 downto 0) := (others => '0');
 
 begin
 	
-	process(clk, en)
+	process
 	begin
-		if(rising_edge(clk)) then
-			q <= rom(to_integer(unsigned(addr)));
-		end if;
-		if((en = '1') and rising_edge(clk)) then
+		wait until rising_edge(clk);
+		q <= pm(to_integer(unsigned(addr)));
+		if(en = '1') then
 			data_int <= q;
 		end if;
+		if(wr = '1') then
+			pm(to_integer(unsigned(addr))) <= wr_data;
+		end if;
 	end process;
-	data <= data_int;
+	rd_data <= data_int;
 
 end architecture rtl;

@@ -46,7 +46,11 @@ port(
 	av_byteenable : out std_logic_vector(3 downto 0);
 	av_write : out std_logic;
 	av_read : out std_logic;
-	av_waitrequest : in std_logic
+	av_waitrequest : in std_logic;
+	-- PM Memory Access
+	pm_wr_addr : in std_logic_vector(PM_WIDTH-1 downto 0);
+	pm_wr : in std_logic;
+	pm_wr_data : in std_logic_vector(35 downto 0)
 );
 end entity praxos_cpu;
 
@@ -60,7 +64,9 @@ architecture rtl of praxos_cpu is
 		clk : in std_logic;
 		en : in std_logic;
 		addr : in std_logic_vector(PM_WIDTH-1 downto 0);
-		data : out std_logic_vector(35 downto 0)
+		wr : in std_logic;
+		wr_data : in std_logic_vector(35 downto 0);
+		rd_data : out std_logic_vector(35 downto 0)
 	);
 	end component;
 
@@ -143,13 +149,14 @@ architecture rtl of praxos_cpu is
 	signal adder, logic, shifter : std_logic_vector(31 downto 0);
 	signal acc_mux: std_logic_Vector(31 downto 0);
 	-- Program memory
-	signal pm_data : std_logic_vector(35 downto 0);
+	signal pm_addr : std_logic_vector(PM_WIDTH-1 downto 0) := (others => '0');
+	signal pm_rd_data : std_logic_vector(35 downto 0);
 	-- Data memory
 	signal dm_addr : std_logic_vector(DM_WIDTH-1 downto 0);
 	signal dm_wr_data, dm_rd_data : std_logic_vector(31 downto 0);
 	-- control signals
 	signal reset_sr : std_logic_vector(1 downto 0) := "00";
-	signal pm_en, jal, branch_int, pc_inc, alu_sel_int, acc_en_int, i_en_int, port_rd_int, port_wr_int, dm_wr_int, bus_strt : std_logic;
+	signal pm_wr_int, pm_en, jal, branch_int, pc_inc, alu_sel_int, acc_en_int, i_en_int, port_rd_int, port_wr_int, dm_wr_int, bus_strt : std_logic;
 
 begin
 
@@ -192,7 +199,7 @@ begin
 		acc_in => acc,
 		sel_imm => alu_sel,
 		-- immediate operand/ALU op
-		imm => pm_data(31 downto 0),
+		imm => pm_rd_data(31 downto 0),
 		-- Data memory
 		dm_rd_data => dm_rd_data,
 		-- ALU outputs
@@ -208,8 +215,10 @@ begin
 	port map(
 		clk => clk,
 		en => pm_en,
-		addr => pc,
-		data => pm_data
+		addr => pm_addr,
+		wr => pm_wr_int,
+		wr_data => pm_wr_data,
+		rd_data => pm_rd_data
 	);
 	
 	data_ram : praxos_dm
@@ -234,13 +243,13 @@ begin
 		end if;
 	end process reset_gen;
 
-	instr <= pm_data(35 downto 29);
+	instr <= pm_rd_data(35 downto 29);
 	
-	dm_data_mux : process(acc, pc_link, pm_data, index)
+	dm_data_mux : process(acc, pc_link, pm_rd_data, index)
 	begin
-		case(pm_data(35 downto 34)) is
+		case(pm_rd_data(35 downto 34)) is
 		when "01" =>
-			if(pm_data(31) = '1') then
+			if(pm_rd_data(31) = '1') then
 				dm_wr_data <= index;
 			else
 				dm_wr_data <= acc;
@@ -253,17 +262,28 @@ begin
 		end case;
 	end process dm_data_mux;
 	
-	dm_addr_mux : process(pm_data, index)
+	pm_addr_mux : process(pc, pm_wr, pm_wr_addr, resetn)
+	begin
+		if(reset_sr(1) = '1') then
+			pm_addr <= pc;
+			pm_wr_int <= '0';
+		else
+			pm_addr <= pm_wr_addr;
+			pm_wr_int <= pm_wr; 
+		end if;
+	end process pm_addr_mux;
+
+	dm_addr_mux : process(pm_rd_data, index)
 		variable y_sxtd : std_logic_vector(31 downto 0);
 		variable offset : std_logic_vector(31 downto 0);
 	begin
-		y_sxtd(15 downto 0) := pm_data(15 downto 0);
-		y_sxtd(31 downto 16) := (others => pm_data(15));
+		y_sxtd(15 downto 0) := pm_rd_data(15 downto 0);
+		y_sxtd(31 downto 16) := (others => pm_rd_data(15));
 		offset := std_logic_vector(unsigned(index) + unsigned(y_sxtd));
-		if(pm_data(35)= '1') then
+		if(pm_rd_data(35)= '1') then
 			dm_addr <= offset(DM_WIDTH-1 downto 0);
 		else
-			dm_addr <= pm_data(DM_WIDTH-1 downto 0);
+			dm_addr <= pm_rd_data(DM_WIDTH-1 downto 0);
 		end if;
 	end process dm_addr_mux;
 	
@@ -304,12 +324,12 @@ begin
 		variable w_sxtd : std_logic_vector(31 downto 0);
 	begin
 		wait until rising_edge(clk);
-		w_sxtd(15 downto 0) := pm_data(31 downto 16);
-		w_sxtd(31 downto 16) := (others => pm_data(31));
+		w_sxtd(15 downto 0) := pm_rd_data(31 downto 16);
+		w_sxtd(31 downto 16) := (others => pm_rd_data(31));
 		if(i_en = '1') then
-			case(pm_data(35 downto 34)) is
+			case(pm_rd_data(35 downto 34)) is
 			when "00" =>
-				index <= pm_data(31 downto 0);
+				index <= pm_rd_data(31 downto 0);
 			when "01" =>
 				index <= dm_rd_data;
 			when others =>
@@ -326,7 +346,7 @@ begin
 		elsif(jal = '1') then
 			pc <= acc(PM_WIDTH-1 downto 0);
 		elsif(branch = '1') then
-			pc <= std_logic_vector(unsigned(pc) + unsigned(pm_data(PM_WIDTH-1 downto 0)));
+			pc <= std_logic_vector(unsigned(pc) + unsigned(pm_rd_data(PM_WIDTH-1 downto 0)));
 		elsif(pc_inc = '1') then
 			pc <= std_logic_vector(unsigned(pc) + 1);
 		end if;
@@ -344,8 +364,8 @@ begin
 			av_read_int <= '0';
 			if(bus_strt = '1') then
 				bus_busy <= '1';
-				av_write_int <= pm_data(35);
-				av_read_int <= pm_data(32);
+				av_write_int <= pm_rd_data(35);
+				av_read_int <= pm_rd_data(32);
 			end if;
 		elsif(av_waitrequest = '0') then
 			av_readdata_int <= av_readdata;
@@ -379,10 +399,10 @@ begin
 
 	av_read <= av_read_int;
 	av_write <= av_write_int;
-	port_addr <= pm_data(15 downto 0);
+	port_addr <= pm_rd_data(15 downto 0);
 	av_writedata <= acc;
 	port_out <= acc;
-	av_address <= std_logic_vector(unsigned(index) + unsigned(pm_data(27 downto 0)));
-	av_byteenable <= pm_data(31 downto 28);
+	av_address <= std_logic_vector(unsigned(index) + unsigned(pm_rd_data(27 downto 0)));
+	av_byteenable <= pm_rd_data(31 downto 28);
 	
 end architecture rtl;
