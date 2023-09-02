@@ -208,7 +208,7 @@ begin
 		shifter => shifter
 	);
 	
-	program_rom : praxos_pm
+	program_ram : praxos_pm
 	generic map(
 		PM_WIDTH => PM_WIDTH
 	)
@@ -358,7 +358,9 @@ begin
 	bus_arbiter : process
 	begin
 		wait until rising_edge(clk);
-		if(bus_busy = '0') then
+		if(reset_sr(1) = '0') then
+			bus_busy <= '0';
+		elsif(bus_busy = '0') then
 			bus_busy <= '0';
 			av_write_int <= '0';
 			av_read_int <= '0';

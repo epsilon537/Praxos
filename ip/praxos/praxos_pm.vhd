@@ -25,8 +25,6 @@ library ieee;
 use ieee.std_logic_1164.all;
 use ieee.numeric_std.all;
 
-use work.praxos_application_image.all;
-
 entity praxos_pm is
 generic(
 	PM_WIDTH : positive range 5 to 32 := 8
@@ -43,9 +41,10 @@ end entity praxos_pm;
 
 
 architecture rtl of praxos_pm is
-	
-	signal pm : application_image_t := application_image;--(others => (others => '0'));
-	
+
+	type ram_type is array (0 to (2**PM_WIDTH)-1) of std_logic_vector(35 downto 0);
+	signal pm : ram_type;
+
 	signal q : std_logic_vector(35 downto 0);
 	signal data_int : std_logic_vector(35 downto 0) := (others => '0');
 
