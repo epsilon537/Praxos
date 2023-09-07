@@ -314,9 +314,9 @@ if __name__ == "__main__":
         with open(outFile+".h", 'w') as f:
             f.write("#ifndef %s_h\n"%(outFile))
             f.write("#define %s_h\n"%(outFile))
-            f.write("#define %s {\n"%(outFile.upper()))
+            f.write("#define %s {\\\n"%(outFile.upper()))
             for p in progCodeList[:-1]:
-                f.write("0x{:09X}ULL,\n".format(p))
+                f.write("0x{:09X}ULL,\\\n".format(p))
 
             f.write("0x{:09X}ULL}}\n".format(progCodeList[-1]))
             f.write("#endif\n")
