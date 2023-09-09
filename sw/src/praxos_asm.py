@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import sys
 import getopt
+import os.path
 
 class Opcode:
     def __init__(self, instr, operand, opType, shift):
@@ -86,6 +87,30 @@ class UnpackedLine:
         self.mnemonic = ""
         self.operands = []
         self.comment = ""
+
+def genListing(srcCodeLines):
+    addr = 0
+    listing = []
+
+    for srcCodeLine in srcCodeLines:
+        words = srcCodeLine.split()
+        if len(words)==0:
+            continue
+
+        word0 = words[0]
+        #Directive:
+        if word0[0] == '.':
+            listing.append(srcCodeLine)
+            continue
+        #Comment:
+        if word0[0] == ';':
+            listing.append(srcCodeLine)
+            continue
+        
+        listing.append("{0:X}: {1}".format(addr, srcCodeLine))
+        addr+=1
+
+    return listing
 
 #Returns False if failed.
 def FirstPass(srcCodeLines):
@@ -236,8 +261,66 @@ def SecondPass():
 
     return instrCount
 
+def praxos_asm(pmSize, inFile, outFile):
+    try:
+        f = open(inFile, "r")
+        srcCodeLines = f.readlines()
+    except:
+        print("Error, could not open file %s"%(inFile))
+        sys.exit(-1)
+    
+    print("\nFirst pass...")
+    if not FirstPass(srcCodeLines):
+        print("First pass failed.")
+        sys.exit(-1)
+
+    print("Second pass...")
+    count = SecondPass()
+    if count <= 0:
+        print("Second pass failed")
+        sys.exit(-1)
+
+    if count >= pmSize:
+        print("Program size %d doesn't fit in pmSize %d"%(count, pmSize))
+        sys.exit(-1)
+    
+    listing = genListing(srcCodeLines)
+
+    try:
+        #.mem file
+        with open(outFile+".mem", 'w') as f:
+            for p in progCodeList:
+                f.write("{:09X}\n".format(p))
+        
+        #.h file
+        with open(outFile+".h", 'w') as f:
+            f.write("#ifndef %s_h\n"%(outFile))
+            f.write("#define %s_h\n"%(outFile))
+            f.write("#define %s {\\\n"%(outFile.upper()))
+            for p in progCodeList[:-1]:
+                f.write("0x{:09X}ULL,\\\n".format(p))
+
+            f.write("0x{:09X}ULL}}\n".format(progCodeList[-1]))
+            f.write("#endif\n")
+        
+        #.py file
+        with open(outFile+".py", 'w') as f:
+            f.write("%s = [\n"%(outFile.upper()))
+            for p in progCodeList[:-1]:
+                f.write("0x{:09X},\n".format(p))
+            f.write("0x{:09X}]\n".format(progCodeList[-1]))
+
+        #.lst file
+        with open(outFile+".lst", 'w') as f: 
+            for l in listing:
+                f.write(l)
+
+        
+    except:
+        print("Error writing output file: %s"%(outFile))
+
 def usage():
-    print("Usage: praxos_asm.py [-h(elp)] -p <program memory size> -s <praxos.asm> -o <outfile basename>")
+    print("Usage: praxos_asm.py [-h(elp)] -p <program memory size> -s <praxos.asm> [-o <outfile basename>]")
 
 if __name__ == "__main__":
     try:
@@ -276,59 +359,13 @@ if __name__ == "__main__":
         print("-s <praxos.asm> argument is required.")
  
     if outFile is None:
-        print("-o <outfile basename> argument is required.")
+        outFile = os.path.basename(os.path.splitext(inFile)[0])
  
     if not (pmSize and inFile and outFile):
         usage()
         sys.exit(-1)
 
-    try:
-        f = open(inFile, "r")
-        srcCodeLines = f.readlines()
-    except:
-        print("Error, could not open file %s"%(inFile))
-        sys.exit(-1)
-    
-    print("\nFirst pass...")
-    if not FirstPass(srcCodeLines):
-        print("First pass failed.")
-        sys.exit(-1)
-
-    print("Second pass...")
-    count = SecondPass()
-    if count <= 0:
-        print("Second pass failed")
-        sys.exit(-1)
-
-    if count >= pmSize:
-        print("Program size %d doesn't fit in pmSize %d"%(count, pmSize))
-        sys.exit(-1)
-        
-    try:
-        #.mem file
-        with open(outFile+".mem", 'w') as f:
-            for p in progCodeList:
-                f.write("{:09X}\n".format(p))
-        
-        #.h file
-        with open(outFile+".h", 'w') as f:
-            f.write("#ifndef %s_h\n"%(outFile))
-            f.write("#define %s_h\n"%(outFile))
-            f.write("#define %s {\\\n"%(outFile.upper()))
-            for p in progCodeList[:-1]:
-                f.write("0x{:09X}ULL,\\\n".format(p))
-
-            f.write("0x{:09X}ULL}}\n".format(progCodeList[-1]))
-            f.write("#endif\n")
-        
-        #.py file
-        with open(outFile+".py", 'w') as f:
-            f.write("%s = [\n"%(outFile.upper()))
-            for p in progCodeList[:-1]:
-                f.write("0x{:09X},\n".format(p))
-            f.write("0x{:09X}]\n".format(progCodeList[-1]))
-    except:
-        print("Error writing output file: %s"%(outFile))
+    praxos_asm(pmSize, inFile, outFile)
        
     print("Done.")
                
